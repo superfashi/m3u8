@@ -330,6 +330,9 @@ func (p *MediaPlaylist) Remove() (err error) {
 	if len(p.Segments) == 0 {
 		return errors.New("playlist is empty")
 	}
+	if p.Segments[0].Discontinuity {
+		p.DiscontinuitySeq++
+	}
 	p.Segments = p.Segments[1:]
 	if !p.Closed {
 		p.SeqNo++
