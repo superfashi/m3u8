@@ -1,11 +1,11 @@
 /*
- Playlist parsing tests.
+Playlist parsing tests.
 
- Copyright 2013-2019 The Project Developers.
- See the AUTHORS and LICENSE files at the top-level directory of this distribution
- and at https://github.com/grafov/m3u8/
+Copyright 2013-2019 The Project Developers.
+See the AUTHORS and LICENSE files at the top-level directory of this distribution
+and at https://github.com/grafov/m3u8/
 
- ॐ तारे तुत्तारे तुरे स्व
+ॐ तारे तुत्तारे तुरे स्व
 */
 package m3u8
 
@@ -143,7 +143,7 @@ func TestDecodeMasterPlaylistWithStreamInfName(t *testing.T) {
 
 func TestDecodeMediaPlaylistByteRange(t *testing.T) {
 	f, _ := os.Open("sample-playlists/media-playlist-with-byterange.m3u8")
-	p, _ := NewMediaPlaylist(3, 3)
+	p, _ := NewMediaPlaylist(3)
 	_ = p.DecodeFrom(bufio.NewReader(f), true)
 	expected := []*MediaSegment{
 		{URI: "video.ts", Duration: 10, Limit: 75232, SeqId: 0},
@@ -297,7 +297,7 @@ func TestDecodeMediaPlaylist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := NewMediaPlaylist(5, 798)
+	p, err := NewMediaPlaylist(0)
 	if err != nil {
 		t.Fatalf("Create media playlist failed: %s", err)
 	}
@@ -325,11 +325,11 @@ func TestDecodeMediaPlaylist(t *testing.T) {
 			t.Errorf("Segment %v's title = %v (must = %q)", i, s.Title, titles[i])
 		}
 	}
-	if p.Count() != 522 {
-		t.Errorf("Excepted segments quantity: 522, got: %v", p.Count())
+	if len(p.Segments) != 522 {
+		t.Errorf("Excepted segments quantity: 522, got: %v", len(p.Segments))
 	}
-	var seqId, idx uint
-	for seqId, idx = 1, 0; idx < p.Count(); seqId, idx = seqId+1, idx+1 {
+	var seqId, idx int
+	for seqId, idx = 1, 0; idx < len(p.Segments); seqId, idx = seqId+1, idx+1 {
 		if p.Segments[idx].SeqId != uint64(seqId) {
 			t.Errorf("Excepted SeqId for %vth segment: %v, got: %v", idx+1, seqId, p.Segments[idx].SeqId)
 		}
@@ -368,7 +368,7 @@ func TestDecodeMediaPlaylistExtInfNonStrict2(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		p, err := NewMediaPlaylist(1, 1)
+		p, err := NewMediaPlaylist(1)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -394,7 +394,7 @@ func TestDecodeMediaPlaylistWithWidevine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := NewMediaPlaylist(5, 798)
+	p, err := NewMediaPlaylist(0)
 	if err != nil {
 		t.Fatalf("Create media playlist failed: %s", err)
 	}
@@ -481,9 +481,9 @@ func TestDecodeMediaPlaylistAutoDetectExtend(t *testing.T) {
 	if listType != MEDIA {
 		t.Error("Sample not recognized as media playlist.")
 	}
-	var exp uint = 40001
-	if pp.Count() != exp {
-		t.Errorf("Media segment count %v != %v", pp.Count(), exp)
+	const exp = 40001
+	if len(pp.Segments) != exp {
+		t.Errorf("Media segment count %v != %v", len(pp.Segments), exp)
 	}
 }
 
@@ -555,7 +555,7 @@ func TestMediaPlaylistWithOATCLSSCTE35Tag(t *testing.T) {
 		1: {Syntax: SCTE35_OATCLS, CueType: SCTE35Cue_Mid, Cue: "/DAlAAAAAAAAAP/wFAUAAAABf+/+ANgNkv4AFJlwAAEBAQAA5xULLA==", Time: 15, Elapsed: 8.844},
 		2: {Syntax: SCTE35_OATCLS, CueType: SCTE35Cue_End},
 	}
-	for i := 0; i < int(pp.Count()); i++ {
+	for i := 0; i < len(pp.Segments); i++ {
 		if !reflect.DeepEqual(pp.Segments[i].SCTE, expect[i]) {
 			t.Errorf("OATCLS SCTE35 segment %v (uri: %v)\ngot: %#v\nexp: %#v",
 				i, pp.Segments[i].URI, pp.Segments[i].SCTE, expect[i],
@@ -581,14 +581,14 @@ func TestDecodeMediaPlaylistWithDiscontinuitySeq(t *testing.T) {
 	if pp.DiscontinuitySeq == 0 {
 		t.Error("Empty discontinuity sequenece tag")
 	}
-	if pp.Count() != 4 {
-		t.Errorf("Excepted segments quantity: 4, got: %v", pp.Count())
+	if len(pp.Segments) != 4 {
+		t.Errorf("Excepted segments quantity: 4, got: %v", len(pp.Segments))
 	}
 	if pp.SeqNo != 0 {
 		t.Errorf("Excepted SeqNo: 0, got: %v", pp.SeqNo)
 	}
-	var seqId, idx uint
-	for seqId, idx = 0, 0; idx < pp.Count(); seqId, idx = seqId+1, idx+1 {
+	var seqId, idx int
+	for seqId, idx = 0, 0; idx < len(pp.Segments); seqId, idx = seqId+1, idx+1 {
 		if pp.Segments[idx].SeqId != uint64(seqId) {
 			t.Errorf("Excepted SeqId for %vth segment: %v, got: %v", idx+1, seqId, pp.Segments[idx].SeqId)
 		}
@@ -789,7 +789,7 @@ func TestDecodeMediaPlaylistWithCustomTags(t *testing.T) {
 
 		expectedIndex := 0
 
-		for i := 0; i < int(pp.Count()); i++ {
+		for i := 0; i < len(pp.Segments); i++ {
 			seg := pp.Segments[i]
 			if expectedIndex != len(testCase.expectedSegmentTags) {
 				expectedSegmentTag = testCase.expectedSegmentTags[expectedIndex]
@@ -935,13 +935,13 @@ func TestDecodeMediaPlaylistWithProgramDateTime(t *testing.T) {
 		"20181231/0555e0c371ea801726b92512c331399d_00000001.ts",
 		"20181231/0555e0c371ea801726b92512c331399d_00000002.ts",
 		"20181231/0555e0c371ea801726b92512c331399d_00000003.ts"}
-	if pp.Count() != uint(len(segNames)) {
-		t.Errorf("Segments in playlist %d != %d", pp.Count(), len(segNames))
+	if len(pp.Segments) != len(segNames) {
+		t.Errorf("Segments in playlist %d != %d", len(pp.Segments), len(segNames))
 	}
 
 	for idx, name := range segNames {
 		if pp.Segments[idx].URI != name {
-			t.Errorf("Segment name mismatch (%d/%d): %s != %s", idx, pp.Count(), pp.Segments[idx].Title, name)
+			t.Errorf("Segment name mismatch (%d/%d): %s != %s", idx, len(pp.Segments), pp.Segments[idx].Title, name)
 		}
 	}
 
@@ -1030,7 +1030,7 @@ func BenchmarkDecodeMediaPlaylist(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		p, err := NewMediaPlaylist(50000, 50000)
+		p, err := NewMediaPlaylist(50000)
 		if err != nil {
 			b.Fatalf("Create media playlist failed: %s", err)
 		}

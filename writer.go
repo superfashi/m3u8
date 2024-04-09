@@ -315,33 +315,22 @@ func (p *MasterPlaylist) String() string {
 // NewMediaPlaylist creates a new media playlist structure. Winsize
 // defines how much items will displayed on playlist generation.
 // Capacity is total size of a playlist.
-func NewMediaPlaylist(winsize uint, capacity uint) (*MediaPlaylist, error) {
+func NewMediaPlaylist(winsize uint) (*MediaPlaylist, error) {
 	p := new(MediaPlaylist)
 	p.ver = minver
-	p.capacity = capacity
 	if err := p.SetWinSize(winsize); err != nil {
 		return nil, err
 	}
-	p.Segments = make([]*MediaSegment, capacity)
 	return p, nil
-}
-
-// last returns the previously written segment's index
-func (p *MediaPlaylist) last() uint {
-	if p.tail == 0 {
-		return p.capacity - 1
-	}
-	return p.tail - 1
 }
 
 // Remove current segment from the head of chunk slice form a media playlist. Useful for sliding playlists.
 // This operation does reset playlist cache.
 func (p *MediaPlaylist) Remove() (err error) {
-	if p.count == 0 {
+	if len(p.Segments) == 0 {
 		return errors.New("playlist is empty")
 	}
-	p.head = (p.head + 1) % p.capacity
-	p.count--
+	p.Segments = p.Segments[1:]
 	if !p.Closed {
 		p.SeqNo++
 	}
@@ -362,16 +351,14 @@ func (p *MediaPlaylist) Append(uri string, duration float64, title string) error
 // AppendSegment appends a MediaSegment to the tail of chunk slice for
 // a media playlist.  This operation does reset playlist cache.
 func (p *MediaPlaylist) AppendSegment(seg *MediaSegment) error {
-	if p.head == p.tail && p.count > 0 {
+	if p.winsize > 0 && uint(len(p.Segments)) >= p.winsize {
 		return ErrPlaylistFull
 	}
 	seg.SeqId = p.SeqNo
-	if p.count > 0 {
-		seg.SeqId = p.Segments[(p.capacity+p.tail-1)%p.capacity].SeqId + 1
+	if len(p.Segments) > 0 {
+		seg.SeqId = p.Segments[len(p.Segments)-1].SeqId + 1
 	}
-	p.Segments[p.tail] = seg
-	p.tail = (p.tail + 1) % p.capacity
-	p.count++
+	p.Segments = append(p.Segments, seg)
 	if p.TargetDuration < seg.Duration {
 		p.TargetDuration = math.Ceil(seg.Duration)
 	}
@@ -384,7 +371,7 @@ func (p *MediaPlaylist) AppendSegment(seg *MediaSegment) error {
 // appends one chunk to the tail of chunk slice. Useful for sliding
 // playlists.  This operation does reset cache.
 func (p *MediaPlaylist) Slide(uri string, duration float64, title string) {
-	if !p.Closed && p.count >= p.winsize {
+	if p.winsize > 0 && uint(len(p.Segments)) >= p.winsize {
 		p.Remove()
 	}
 	p.Append(uri, duration, title)
@@ -557,21 +544,11 @@ func (p *MediaPlaylist) Encode() *bytes.Buffer {
 		}
 	}
 
-	var (
-		seg           *MediaSegment
-		durationCache = make(map[float64]string)
-	)
+	var durationCache = make(map[float64]string)
 
-	head := p.head
-	count := p.count
-	for i := uint(0); (i < p.winsize || p.winsize == 0) && count > 0; count-- {
-		seg = p.Segments[head]
-		head = (head + 1) % p.capacity
+	for _, seg := range p.Segments {
 		if seg == nil { // protection from badly filled chunklists
 			continue
-		}
-		if p.winsize > 0 { // skip for VOD playlists, where winsize = 0
-			i++
 		}
 		if seg.SCTE != nil {
 			switch seg.SCTE.Syntax {
@@ -727,12 +704,6 @@ func (p *MediaPlaylist) DurationAsInt(yes bool) {
 	p.durationAsInt = yes
 }
 
-// Count tells us the number of items that are currently in the media
-// playlist.
-func (p *MediaPlaylist) Count() uint {
-	return p.count
-}
-
 // Close sliding playlist and make them fixed.
 func (p *MediaPlaylist) Close() {
 	if p.buf.Len() > 0 {
@@ -774,7 +745,7 @@ func (p *MediaPlaylist) SetIframeOnly() {
 // SetKey sets encryption key for the current segment of media playlist
 // (pointer to Segment.Key).
 func (p *MediaPlaylist) SetKey(method, uri, iv, keyformat, keyformatversions string) error {
-	if p.count == 0 {
+	if len(p.Segments) == 0 {
 		return errors.New("playlist is empty")
 	}
 
@@ -785,30 +756,30 @@ func (p *MediaPlaylist) SetKey(method, uri, iv, keyformat, keyformatversions str
 		version(&p.ver, 5)
 	}
 
-	p.Segments[p.last()].Key = &Key{method, uri, iv, keyformat, keyformatversions}
+	p.Segments[len(p.Segments)-1].Key = &Key{method, uri, iv, keyformat, keyformatversions}
 	return nil
 }
 
 // SetMap sets map for the current segment of media playlist (pointer
 // to Segment.Map).
 func (p *MediaPlaylist) SetMap(uri string, limit, offset int64) error {
-	if p.count == 0 {
+	if len(p.Segments) == 0 {
 		return errors.New("playlist is empty")
 	}
 	version(&p.ver, 5) // due section 4
-	p.Segments[p.last()].Map = &Map{uri, limit, offset}
+	p.Segments[len(p.Segments)-1].Map = &Map{uri, limit, offset}
 	return nil
 }
 
 // SetRange sets limit and offset for the current media segment
 // (EXT-X-BYTERANGE support for protocol version 4).
 func (p *MediaPlaylist) SetRange(limit, offset int64) error {
-	if p.count == 0 {
+	if len(p.Segments) == 0 {
 		return errors.New("playlist is empty")
 	}
 	version(&p.ver, 4) // due section 3.4.1
-	p.Segments[p.last()].Limit = limit
-	p.Segments[p.last()].Offset = offset
+	p.Segments[len(p.Segments)-1].Limit = limit
+	p.Segments[len(p.Segments)-1].Offset = offset
 	return nil
 }
 
@@ -821,10 +792,10 @@ func (p *MediaPlaylist) SetSCTE(cue string, id string, time float64) error {
 
 // SetSCTE35 sets the SCTE cue format for the current media segment
 func (p *MediaPlaylist) SetSCTE35(scte35 *SCTE) error {
-	if p.count == 0 {
+	if len(p.Segments) == 0 {
 		return errors.New("playlist is empty")
 	}
-	p.Segments[p.last()].SCTE = scte35
+	p.Segments[len(p.Segments)-1].SCTE = scte35
 	return nil
 }
 
@@ -834,10 +805,10 @@ func (p *MediaPlaylist) SetSCTE35(scte35 *SCTE) error {
 // it (i.e. file format, number and type of tracks, encoding
 // parameters, encoding sequence, timestamp sequence).
 func (p *MediaPlaylist) SetDiscontinuity() error {
-	if p.count == 0 {
+	if len(p.Segments) == 0 {
 		return errors.New("playlist is empty")
 	}
-	p.Segments[p.last()].Discontinuity = true
+	p.Segments[len(p.Segments)-1].Discontinuity = true
 	return nil
 }
 
@@ -847,10 +818,10 @@ func (p *MediaPlaylist) SetDiscontinuity() error {
 // to the current media segment.  Date/time format is
 // YYYY-MM-DDThh:mm:ssZ (ISO8601) and includes time zone.
 func (p *MediaPlaylist) SetProgramDateTime(value time.Time) error {
-	if p.count == 0 {
+	if len(p.Segments) == 0 {
 		return errors.New("playlist is empty")
 	}
-	p.Segments[p.last()].ProgramDateTime = value
+	p.Segments[len(p.Segments)-1].ProgramDateTime = value
 	return nil
 }
 
@@ -867,11 +838,11 @@ func (p *MediaPlaylist) SetCustomTag(tag CustomTag) {
 // SetCustomSegmentTag sets the provided tag on the current media
 // segment for its TagName.
 func (p *MediaPlaylist) SetCustomSegmentTag(tag CustomTag) error {
-	if p.count == 0 {
+	if len(p.Segments) == 0 {
 		return errors.New("playlist is empty")
 	}
 
-	last := p.Segments[p.last()]
+	last := p.Segments[len(p.Segments)-1]
 
 	if last.Custom == nil {
 		last.Custom = make(map[string]CustomTag)
@@ -900,31 +871,9 @@ func (p *MediaPlaylist) WinSize() uint {
 
 // SetWinSize overwrites the playlist's window size.
 func (p *MediaPlaylist) SetWinSize(winsize uint) error {
-	if winsize > p.capacity {
+	if winsize < p.winsize {
 		return errors.New("capacity must be greater than winsize or equal")
 	}
 	p.winsize = winsize
 	return nil
-}
-
-// GetAllSegments could get all segments currently added to
-// playlist.
-func (p *MediaPlaylist) GetAllSegments() []*MediaSegment {
-	if p.count == 0 {
-		return nil
-	}
-	buf := make([]*MediaSegment, 0, p.count)
-	if p.head < p.tail {
-		for i := p.head; i < p.tail; i++ {
-			buf = append(buf, p.Segments[i])
-		}
-		return buf
-	}
-	for i := uint(0); i < p.tail; i++ {
-		buf = append(buf, p.Segments[i])
-	}
-	for i := p.head; i < p.capacity; i++ {
-		buf = append(buf, p.Segments[i])
-	}
-	return buf
 }
